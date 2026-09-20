@@ -26,12 +26,29 @@ export default async function handler(req, res) {
             });
 
             response.on('end', () => {
-                const isFull = data.includes("No available spots") || data.includes("Fully booked") || data.includes("Inga lediga platser");
+                const spots = [];
+                
+                // Sök ut alla option-element i rullgardinsmenyn/select-boxen
+                const optionRegex = /<option[^>]*value=["']?([^"'>]+)["']?[^>]*>(.*?)<\/option>/gi;
+                let match;
+
+                while ((match = optionRegex.exec(data)) !== null) {
+                    const value = match[1].trim();
+                    const text = match[2].replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+
+                    // Filtrera bort standardval (t.ex. "Select spot" / "Välj plats")
+                    if (value && !value.includes('select') && text.length > 0) {
+                        spots.push(text);
+                    }
+                }
+
+                const isFull = spots.length === 0 && (data.includes("No available spots") || data.includes("Fully booked") || data.includes("Inga lediga platser"));
+
                 res.status(200).json({
                     arrival,
                     departure,
-                    available: !isFull,
-                    statusCode: response.statusCode
+                    available: spots.length > 0 || !isFull,
+                    spots: spots
                 });
                 resolve();
             });
@@ -42,6 +59,7 @@ export default async function handler(req, res) {
                 arrival,
                 departure,
                 available: false,
+                spots: [],
                 error: error.message
             });
             resolve();
@@ -53,6 +71,7 @@ export default async function handler(req, res) {
                 arrival,
                 departure,
                 available: false,
+                spots: [],
                 error: 'Timeout'
             });
             resolve();
