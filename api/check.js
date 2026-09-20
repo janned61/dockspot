@@ -12,7 +12,8 @@ export default async function handler(req, res) {
         headers: {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'sv-SE,sv;q=0.9,en-US;q=0.8,en;q=0.7'
+            'Accept-Language': 'sv-SE,sv;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Cache-Control': 'no-cache'
         }
     };
 
@@ -25,17 +26,14 @@ export default async function handler(req, res) {
             });
 
             response.on('end', () => {
-                res.status(200).json({
-                    arrival,
-                    departure,
-                    html: data
-                });
+                res.setHeader('Content-Type', 'text/html; charset=utf-8');
+                res.status(200).send(data);
                 resolve();
             });
         });
 
         request.on('error', (error) => {
-            res.status(500).json({ error: error.message });
+            res.status(500).send('Error');
             resolve();
         });
 
