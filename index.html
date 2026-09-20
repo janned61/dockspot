@@ -184,62 +184,63 @@ async function runSearch() {
 
         try {
             const response = await fetch(apiUrl);
-            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error('Serverfel');
+            }
 
-            if (response.ok && data.html) {
-                // Skapa en temporär HTML-tolkare i mobilen
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(data.html, 'text/html');
+            const htmlText = await response.text();
 
-                // Hämta alla valbara platser ur rullgardinsmenyn (select/option)
-                const options = Array.from(doc.querySelectorAll('select option, .spot-option'));
-                let spots = [];
+            // Parsea HTML direkt i mobilen
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlText, 'text/html');
 
-                options.forEach(opt => {
-                    const txt = opt.textContent.trim();
-                    const val = opt.getAttribute('value') || '';
-                    if (txt && !val.includes('select') && !txt.toLowerCase().includes('välj') && !txt.toLowerCase().includes('select')) {
-                        spots.push(txt);
-                    }
-                });
+            // Hämta alla platser ur dropplistan
+            const options = Array.from(doc.querySelectorAll('select option, option'));
+            let spots = [];
 
-                // Kolla om koden antyder fullbokning
-                const isExplicitlyFull = data.html.includes("No available spots") || data.html.includes("Fullbokat") || data.html.includes("Inga lediga platser");
-                const isAvailable = spots.length > 0 || !isExplicitlyFull;
-
-                let spotsListHtml = '';
-                if (spots.length > 0) {
-                    spotsListHtml = `
-                        <div style="margin-top: 8px; padding: 8px; background: #ffffff; border-radius: 8px; border: 1px solid var(--border);">
-                            <strong style="font-size: 12px; color: var(--primary);">Lediga platser:</strong>
-                            <ul style="font-size: 13px; margin: 4px 0 0 16px; padding: 0;">
-                                ${spots.map(s => `<li>${s}</li>`).join('')}
-                            </ul>
-                        </div>
-                    `;
+            options.forEach(opt => {
+                const txt = opt.textContent.trim();
+                const val = opt.getAttribute('value') || '';
+                if (txt && !val.includes('select') && !txt.toLowerCase().includes('välj') && !txt.toLowerCase().includes('select')) {
+                    spots.push(txt);
                 }
+            });
 
-                htmlResults += `
-                    <div class="day-result">
-                        <div class="day-header">
-                            <span>📅 ${arrival} ➔ ${departure}</span>
-                            <span class="spot-badge ${isAvailable ? 'spot-available' : 'spot-full'}">
-                                ${isAvailable ? 'Plats Finns' : 'Fullbokat'}
-                            </span>
-                        </div>
-                        ${spotsListHtml}
-                        ${isAvailable ? `
-                            <div style="margin-top: 8px;">
-                                <a href="${dockUrl}" target="_blank" style="display: block; text-align: center; background: #0284c7; color: white; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 600;">
-                                    📍 Boka på Dockspot
-                                </a>
-                            </div>
-                        ` : ''}
+            // Avgör om det finns ledigt
+            const isExplicitlyFull = htmlText.includes("No available spots") || htmlText.includes("Fullbokat") || htmlText.includes("Inga lediga platser");
+            const isAvailable = spots.length > 0 || !isExplicitlyFull;
+
+            let spotsListHtml = '';
+            if (spots.length > 0) {
+                spotsListHtml = `
+                    <div style="margin-top: 8px; padding: 8px; background: #ffffff; border-radius: 8px; border: 1px solid var(--border);">
+                        <strong style="font-size: 12px; color: var(--primary);">Lediga platser:</strong>
+                        <ul style="font-size: 13px; margin: 4px 0 0 16px; padding: 0;">
+                            ${spots.map(s => `<li>${s}</li>`).join('')}
+                        </ul>
                     </div>
                 `;
-            } else {
-                throw new Error('Fel i svar');
             }
+
+            htmlResults += `
+                <div class="day-result">
+                    <div class="day-header">
+                        <span>📅 ${arrival} ➔ ${departure}</span>
+                        <span class="spot-badge ${isAvailable ? 'spot-available' : 'spot-full'}">
+                            ${isAvailable ? 'Plats Finns' : 'Fullbokat'}
+                        </span>
+                    </div>
+                    ${spotsListHtml}
+                    ${isAvailable ? `
+                        <div style="margin-top: 8px;">
+                            <a href="${dockUrl}" target="_blank" style="display: block; text-align: center; background: #0284c7; color: white; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 600;">
+                                📍 Boka på Dockspot
+                            </a>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
         } catch (err) {
             htmlResults += `
                 <div class="day-result">
