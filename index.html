@@ -151,68 +151,71 @@
             }
         }
 
-        async function runSearch() {
-            const dock = document.getElementById('dockSelect').value;
-            const length = document.getElementById('length').value;
-            const width = document.getElementById('width').value;
-            const depth = document.getElementById('depth').value;
-            
-            const startDateVal = document.getElementById('startDate').value;
-            const endDateVal = document.getElementById('endDate').value;
+async function runSearch() {
+    const dock = document.getElementById('dockSelect').value;
+    const length = document.getElementById('length').value;
+    const width = document.getElementById('width').value;
+    const depth = document.getElementById('depth').value;
+    
+    const startDateVal = document.getElementById('startDate').value;
+    const endDateVal = document.getElementById('endDate').value;
 
-            if (!startDateVal || !endDateVal) {
-                alert('Vänligen välj både start- och slutdatum.');
-                return;
-            }
+    if (!startDateVal || !endDateVal) {
+        alert('Vänligen välj både start- och slutdatum.');
+        return;
+    }
 
-            const resultsContainer = document.getElementById('resultsContainer');
-            resultsContainer.innerHTML = '<p style="font-size: 13px; text-align: center; color: var(--text-sub);">Hämtar tillgänglighet från Dockspot...</p>';
+    const resultsContainer = document.getElementById('resultsContainer');
+    resultsContainer.innerHTML = '<p style="font-size: 13px; text-align: center; color: var(--text-sub);">Hämtar tillgänglighet från Dockspot...</p>';
 
-            let curr = new Date(startDateVal);
-            const end = new Date(endDateVal);
-            let htmlResults = '';
+    let curr = new Date(startDateVal);
+    const end = new Date(endDateVal);
+    let htmlResults = '';
 
-            while (curr < end) {
-                const arrival = curr.toISOString().split('T')[0];
-                
-                let nextDay = new Date(curr);
-                nextDay.setDate(nextDay.getDate() + 1);
-                const departure = nextDay.toISOString().split('T')[0];
+    while (curr < end) {
+        const arrival = curr.toISOString().split('T')[0];
+        
+        let nextDay = new Date(curr);
+        nextDay.setDate(nextDay.getDate() + 1);
+        const departure = nextDay.toISOString().split('T')[0];
 
-                const targetUrl = `https://www.dockspot.com/en/docks/${dock}/availability?length=${length}&width=${width}&depth=${depth}&arrival=${arrival}&departure=${departure}`;
-                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+        // Anropar din egen Vercel-backend istället för extern proxy
+        const apiUrl = `/api/check?dock=${dock}&length=${length}&width=${width}&depth=${depth}&arrival=${arrival}&departure=${departure}`;
 
-                try {
-                    const response = await fetch(proxyUrl);
-                    const data = await response.json();
-                    const isAvailable = data.contents && !data.contents.includes("No available spots");
+        try {
+            const response = await fetch(apiUrl);
+            const data = await response.json();
 
-                    htmlResults += `
-                        <div class="day-result">
-                            <div class="day-header">
-                                <span>📅 ${arrival} ➔ ${departure}</span>
-                                <span class="spot-badge ${isAvailable ? 'spot-available' : 'spot-full'}">
-                                    ${isAvailable ? 'Plats Finns' : 'Fullbokat'}
-                                </span>
-                            </div>
+            if (response.ok) {
+                htmlResults += `
+                    <div class="day-result">
+                        <div class="day-header">
+                            <span>📅 ${arrival} ➔ ${departure}</span>
+                            <span class="spot-badge ${data.available ? 'spot-available' : 'spot-full'}">
+                                ${data.available ? 'Plats Finns' : 'Fullbokat'}
+                            </span>
                         </div>
-                    `;
-                } catch (err) {
-                    htmlResults += `
-                        <div class="day-result">
-                            <div class="day-header">
-                                <span>📅 ${arrival}</span>
-                                <span class="spot-badge spot-full">Kunde inte hämta data</span>
-                            </div>
-                        </div>
-                    `;
-                }
-
-                curr.setDate(curr.getDate() + 1);
+                    </div>
+                `;
+            } else {
+                throw new Error('Fel i API-svar');
             }
-
-            resultsContainer.innerHTML = htmlResults;
+        } catch (err) {
+            htmlResults += `
+                <div class="day-result">
+                    <div class="day-header">
+                        <span>📅 ${arrival} ➔ ${departure}</span>
+                        <span class="spot-badge spot-full">Kunde inte hämta data</span>
+                    </div>
+                </div>
+            `;
         }
+
+        curr.setDate(curr.getDate() + 1);
+    }
+
+    resultsContainer.innerHTML = htmlResults;
+}
     </script>
 </body>
 </html>
