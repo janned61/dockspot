@@ -3,8 +3,11 @@ const https = require('https');
 export default async function handler(req, res) {
     const { dock, length, width, depth, arrival, departure } = req.query;
 
-    // Vi anropar Dockspots interna tillgänglighets-URL
-    const targetPath = `/en/docks/${dock}/availability?length=${length}&width=${width}&depth=${depth}&arrival=${arrival}&departure=${departure}`;
+    // Hämta hamn-ID från dock-strängen (t.ex. "142" från "142-astol-gasthamn")
+    const dockId = dock.split('-')[0];
+
+    // Dockspots interna API-sökväg för sökning
+    const targetPath = `/api/v1/docks/${dockId}/availability?length=${length}&width=${width}&depth=${depth}&arrival=${arrival}&departure=${departure}`;
 
     const options = {
         hostname: 'www.dockspot.com',
@@ -12,10 +15,9 @@ export default async function handler(req, res) {
         method: 'GET',
         headers: {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/javascript, */*; q=0.01',
-            'X-Requested-With': 'XMLHttpRequest',
-            'Accept-Language': 'sv-SE,sv;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Cache-Control': 'no-cache'
+            'Accept': 'application/json, text/plain, */*',
+            'Referer': `https://www.dockspot.com/sv/docks/${dock}`,
+            'X-Requested-With': 'XMLHttpRequest'
         }
     };
 
@@ -29,39 +31,29 @@ export default async function handler(req, res) {
 
             response.on('end', () => {
                 let spots = [];
-                let debugRaw = '';
+                let isAvailable = false;
 
-                // Försök tolka om svaret är ren JSON
                 try {
-                    const parsed = JSON.parse(data);
-                    if (Array.isArray(parsed)) {
-                        spots = parsed.map(s => s.name || s.title || s.spot_number || JSON.stringify(s));
-                    } else if (parsed.spots || parsed.docks) {
-                        const list = parsed.spots || parsed.docks;
-                        spots = list.map(s => s.name || s.title || JSON.stringify(s));
-                    }
-                } catch (e) {
-                    // Om det är HTML, extrahera alla id/namn eller kända nycklar
-                    debugRaw = data.substring(0, 300); // Sparar första 300 tecknen för analys
+                    const json = JSON.parse(data);
                     
-                    const spotMatches = data.match(/data-spot-name=["']([^"']+)["']/g) || 
-                                       data.match(/data-name=["']([^"']+)["']/g) ||
-                                       data.match(/"name"\s*:\s*"([^"]+)"/g);
-
-                    if (spotMatches) {
-                        spots = spotMatches.map(m => m.replace(/data-spot-name=|data-name=|"name"\s*:\s*|["']/g, '').trim());
+                    // Om API:et returnerar en lista med platser
+                    if (Array.isArray(json)) {
+                        spots = json.map(s => `${s.name || s.title || 'Plats ' + s.id} - ${s.price || ''} ${s.currency || 'SEK'}`.trim());
+                    } else if (json.spots) {
+                        spots = json.spots.map(s => `${s.name || s.title} - ${s.price || ''} ${s.currency || 'SEK'}`.trim());
                     }
+                    
+                    isAvailable = spots.length > 0;
+                } catch (e) {
+                    // Om API-anropet inte gav JSON, fall tillbaka på enkel status
+                    isAvailable = !data.includes("No available spots") && !data.includes("Fullbokat");
                 }
-
-                // Ta bort dubletter
-                spots = [...new Set(spots)];
 
                 res.status(200).json({
                     arrival,
                     departure,
-                    available: spots.length > 0 || !data.includes("No available spots"),
-                    spots: spots,
-                    debugRaw: spots.length === 0 ? debugRaw : null
+                    available: isAvailable,
+                    spots: spots
                 });
                 resolve();
             });
