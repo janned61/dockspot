@@ -179,14 +179,26 @@ async function runSearch() {
         nextDay.setDate(nextDay.getDate() + 1);
         const departure = nextDay.toISOString().split('T')[0];
 
-        // Anropar din egen Vercel-backend istället för extern proxy
         const apiUrl = `/api/check?dock=${dock}&length=${length}&width=${width}&depth=${depth}&arrival=${arrival}&departure=${departure}`;
+        const dockUrl = `https://www.dockspot.com/sv/docks/${dock}?length=${length}&width=${width}&depth=${depth}&arrival=${arrival}&departure=${departure}`;
 
         try {
             const response = await fetch(apiUrl);
             const data = await response.json();
 
             if (response.ok) {
+                let spotsHtml = '';
+                if (data.spots && data.spots.length > 0) {
+                    spotsHtml = `
+                        <div style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border);">
+                            <div style="font-size: 12px; font-weight: 600; color: var(--text-sub); margin-bottom: 4px;">Lediga platser:</div>
+                            <ul style="font-size: 13px; padding-left: 18px; margin: 0;">
+                                ${data.spots.map(s => `<li>${s}</li>`).join('')}
+                            </ul>
+                        </div>
+                    `;
+                }
+
                 htmlResults += `
                     <div class="day-result">
                         <div class="day-header">
@@ -195,6 +207,14 @@ async function runSearch() {
                                 ${data.available ? 'Plats Finns' : 'Fullbokat'}
                             </span>
                         </div>
+                        ${spotsHtml}
+                        ${data.available ? `
+                            <div style="margin-top: 10px;">
+                                <a href="${dockUrl}" target="_blank" style="display: block; text-align: center; background: #0284c7; color: white; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 600;">
+                                    📍 Boka på Dockspot
+                                </a>
+                            </div>
+                        ` : ''}
                     </div>
                 `;
             } else {
