@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Dockspot Bevakning</title>
+    
+    <!-- PWA & iOS Inställningar -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Dockspot">
+    <meta name="theme-color" content="#0284c7">
+    <link rel="apple-touch-icon" href="https://img.icons8.com/color/512/anchor.png">
+    
+    <style>
+        :root {
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --primary: #0284c7;
+            --text: #0f172a;
+            --text-sub: #64748b;
+            --border: #e2e8f0;
+            --success-bg: #dcfce7;
+            --success-text: #15803d;
+            --danger-bg: #fee2e2;
+            --danger-text: #b91c1c;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background: var(--bg); color: var(--text); padding-bottom: 40px; }
+        
+        .header { background: linear-gradient(135deg, #0284c7, #0369a1); color: white; padding: 24px 20px; border-radius: 0 0 20px 20px; }
+        .header h1 { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+        .container { padding: 16px; max-width: 500px; margin: 0 auto; }
+        
+        .card { background: var(--card); border-radius: 16px; padding: 18px; margin-bottom: 16px; border: 1px solid var(--border); box-shadow: 0 2px 6px rgba(0,0,0,0.03); }
+        .card-title { font-size: 15px; font-weight: 600; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+        
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; font-size: 12px; font-weight: 600; color: var(--text-sub); margin-bottom: 4px; }
+        .form-control { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 15px; background: #f8fafc; color: var(--text); outline: none; }
+        
+        .btn { width: 100%; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 6px; }
+        .btn:active { opacity: 0.9; }
+        
+        .day-result { background: #f8fafc; border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 8px; }
+        .day-header { font-weight: 600; font-size: 14px; margin-bottom: 6px; display: flex; justify-content: space-between; }
+        .spot-badge { display: inline-block; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; margin: 2px; }
+        .spot-available { background: var(--success-bg); color: var(--success-text); }
+        .spot-full { background: var(--danger-bg); color: var(--danger-text); }
+        .saved-tag { font-size: 11px; color: var(--success-text); display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>⚓ Dockspot Bevakning</h1>
+    </div>
+
+    <div class="container">
+        <!-- 1. Båtens Mått -->
+        <div class="card">
+            <div class="card-title">
+                <span>Båtens mått</span>
+                <span id="savedTag" class="saved-tag">✓ Sparat</span>
+            </div>
+            <div class="grid-3">
+                <div class="form-group">
+                    <label>Längd (m)</label>
+                    <input type="number" id="length" class="form-control" value="9.0" step="0.1" onchange="saveBoatSpecs()">
+                </div>
+                <div class="form-group">
+                    <label>Bredd (m)</label>
+                    <input type="number" id="width" class="form-control" value="3.0" step="0.1" onchange="saveBoatSpecs()">
+                </div>
+                <div class="form-group">
+                    <label>Djup (m)</label>
+                    <input type="number" id="depth" class="form-control" value="1.0" step="0.1" onchange="saveBoatSpecs()">
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. Bevakningsinställningar -->
+        <div class="card">
+            <div class="card-title">Sökning & Bevakning</div>
+            <div class="form-group">
+                <label>Välj Gästhamn</label>
+                <select id="dockSelect" class="form-control">
+                    <option value="142-astol-gasthamn">Åstol Gästhamn</option>
+                    <option value="138-marstrand-gasthamn">Marstrands Gästhamn</option>
+                    <option value="145-smogen-gasthamn">Smögens Gästhamn</option>
+                    <option value="140-fiskebackskil-gasthamn">Fiskebäckskil Gästhamn</option>
+                </select>
+            </div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Startdatum</label>
+                    <input type="date" id="startDate" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label>Slutdatum</label>
+                    <input type="date" id="endDate" class="form-control">
+                </div>
+            </div>
+            <button class="btn" onclick="runSearch()">🔍 Sök Lediga Platser</button>
+        </div>
+
+        <!-- 3. Resultat per dag -->
+        <div class="card">
+            <div class="card-title">Tillgänglighet per dygn</div>
+            <div id="resultsContainer">
+                <p style="font-size: 13px; color: var(--text-sub); text-align: center;">Ingen sökning gjord ännu.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            loadBoatSpecs();
+            
+            const today = new Date();
+            const tomorrow = new Date(today);
+            tomorrow.setDate(tomorrow.getDate() + 14);
+            
+            document.getElementById('startDate').value = today.toISOString().split('T')[0];
+            document.getElementById('endDate').value = tomorrow.toISOString().split('T')[0];
+        });
+
+        function saveBoatSpecs() {
+            const specs = {
+                length: document.getElementById('length').value,
+                width: document.getElementById('width').value,
+                depth: document.getElementById('depth').value
+            };
+            localStorage.setItem('dockspot_boat_specs', JSON.stringify(specs));
+            
+            const tag = document.getElementById('savedTag');
+            tag.style.display = 'inline';
+            setTimeout(() => { tag.style.display = 'none'; }, 2000);
+        }
+
+        function loadBoatSpecs() {
+            const saved = localStorage.getItem('dockspot_boat_specs');
+            if (saved) {
+                const specs = JSON.parse(saved);
+                if (specs.length) document.getElementById('length').value = specs.length;
+                if (specs.width) document.getElementById('width').value = specs.width;
+                if (specs.depth) document.getElementById('depth').value = specs.depth;
+            }
+        }
+
+        async function runSearch() {
+            const dock = document.getElementById('dockSelect').value;
+            const length = document.getElementById('length').value;
+            const width = document.getElementById('width').value;
+            const depth = document.getElementById('depth').value;
+            
+            const startDateVal = document.getElementById('startDate').value;
+            const endDateVal = document.getElementById('endDate').value;
+
+            if (!startDateVal || !endDateVal) {
+                alert('Vänligen välj både start- och slutdatum.');
+                return;
+            }
+
+            const resultsContainer = document.getElementById('resultsContainer');
+            resultsContainer.innerHTML = '<p style="font-size: 13px; text-align: center; color: var(--text-sub);">Hämtar tillgänglighet från Dockspot...</p>';
+
+            let curr = new Date(startDateVal);
+            const end = new Date(endDateVal);
+            let htmlResults = '';
+
+            while (curr < end) {
+                const arrival = curr.toISOString().split('T')[0];
+                
+                let nextDay = new Date(curr);
+                nextDay.setDate(nextDay.getDate() + 1);
+                const departure = nextDay.toISOString().split('T')[0];
+
+                const targetUrl = `https://www.dockspot.com/en/docks/${dock}/availability?length=${length}&width=${width}&depth=${depth}&arrival=${arrival}&departure=${departure}`;
+                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+
+                try {
+                    const response = await fetch(proxyUrl);
+                    const data = await response.json();
+                    const isAvailable = data.contents && !data.contents.includes("No available spots");
+
+                    htmlResults += `
+                        <div class="day-result">
+                            <div class="day-header">
+                                <span>📅 ${arrival} ➔ ${departure}</span>
+                                <span class="spot-badge ${isAvailable ? 'spot-available' : 'spot-full'}">
+                                    ${isAvailable ? 'Plats Finns' : 'Fullbokat'}
+                                </span>
+                            </div>
+                        </div>
+                    `;
+                } catch (err) {
+                    htmlResults += `
+                        <div class="day-result">
+                            <div class="day-header">
+                                <span>📅 ${arrival}</span>
+                                <span class="spot-badge spot-full">Kunde inte hämta data</span>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                curr.setDate(curr.getDate() + 1);
+            }
+
+            resultsContainer.innerHTML = htmlResults;
+        }
+    </script>
+</body>
+</html>
