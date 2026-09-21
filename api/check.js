@@ -102,7 +102,7 @@ export default async function handler(req, res) {
         } = req.query;
 
         const path =
-            `/en/docks/${dock}/spot_selections/new` +
+            `/en/docks/${dock}` +
             `?length=${length}` +
             `&width=${width}` +
             `&depth=${depth}` +
