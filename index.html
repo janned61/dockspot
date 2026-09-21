@@ -166,7 +166,7 @@ async function runSearch() {
     }
 
     const resultsContainer = document.getElementById('resultsContainer');
-    resultsContainer.innerHTML = '<p style="font-size: 13px; text-align: center; color: var(--text-sub);">Hämtar och analyserar platsnummer...</p>';
+    resultsContainer.innerHTML = '<p style="font-size: 13px; text-align: center; color: var(--text-sub);">Söker och analyserar platser...</p>';
 
     let curr = new Date(startDateVal);
     const end = new Date(endDateVal);
@@ -201,7 +201,7 @@ async function runSearch() {
                 });
             }
         } catch (err) {
-            dailyResults.push({ arrival, departure, available: false, spots: [] });
+            dailyResults.push({ arrival, departure, available: true, spots: [] });
         }
 
         curr.setDate(curr.getDate() + 1);
@@ -209,7 +209,7 @@ async function runSearch() {
 
     let html = '';
 
-    // Visa översikt för sammanhängande dagar per plats
+    // Visa sammanhängande platser för flera dygn i rad
     const multiDaySpots = Object.keys(spotMap).map(spotName => ({
         name: spotName,
         dates: spotMap[spotName],
@@ -232,7 +232,7 @@ async function runSearch() {
     }
 
     dailyResults.forEach(day => {
-        const dockUrl = `https://www.dockspot.com/sv/docks/${dock}?length=${length}&width=${width}&depth=${depth}&arrival=${arrival}&departure=${departure}`;
+        const dockUrl = `https://www.dockspot.com/sv/docks/${dock}?length=${length}&width=${width}&depth=${depth}&arrival=${day.arrival}&departure=${day.departure}`;
 
         let spotsDetail = day.spots.length > 0 
             ? `<div style="margin-top: 6px; font-size: 13px; color: #0369a1;"><strong>Lediga platser:</strong> ${day.spots.join(', ')}</div>`
