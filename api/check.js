@@ -3,44 +3,17 @@ const https = require('https');
 export default async function handler(req, res) {
     const { dock, length, width, depth, arrival, departure } = req.query;
 
-    // Extrahera hamnid/slug
-    const dockSlug = dock.replace(/^\d+-/, ''); // e.g. "astol-gasthamn"
-
-    // GraphQL-frågan som Dockspot använder internt
-    const query = JSON.stringify({
-        query: `
-            query GetDockAvailability($slug: String!, $length: Float!, $width: Float!, $depth: Float!, $arrival: String!, $departure: String!) {
-                dockBySlug(slug: $slug) {
-                    id
-                    name
-                    availableSpots(length: $length, width: $width, depth: $depth, arrival: $arrival, departure: $departure) {
-                        id
-                        name
-                        number
-                        price
-                    }
-                }
-            }
-        `,
-        variables: {
-            slug: dockSlug,
-            length: parseFloat(length),
-            width: parseFloat(width),
-            depth: parseFloat(depth),
-            arrival: arrival,
-            departure: departure
-        }
-    });
+    const targetPath = `/sv/docks/${dock}?length=${length}&width=${width}&depth=${depth}&arrival=${arrival}&departure=${departure}`;
 
     const options = {
         hostname: 'www.dockspot.com',
-        path: '/graphql',
-        method: 'POST',
+        path: targetPath,
+        method: 'GET',
         headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(query),
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept': 'application/json'
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'sv-SE,sv;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Cache-Control': 'no-cache'
         }
     };
 
@@ -54,25 +27,50 @@ export default async function handler(req, res) {
 
             response.on('end', () => {
                 let spots = [];
-                try {
-                    const json = JSON.parse(data);
-                    const rawSpots = json?.data?.dockBySlug?.availableSpots || [];
-                    spots = rawSpots.map(s => s.name || s.number || `Plats ${s.id}`);
-                } catch (e) {
-                    // Om GraphQL misslyckas, gör en reservsökning via regex
-                    const matches = data.match(/"name"\s*:\s*"([^"]+)"/g);
-                    if (matches) {
-                        spots = matches.map(m => m.replace(/"name"\s*:\s*"|"/g, ''));
+
+                // 1. Sök efter inbäddade platsnamn i JSON/skript (ex. "name":"Plats 12" eller "title":"A12")
+                const jsonSpotRegex = /"(?:name|title|spot_name|spotNumber)"\s*:\s*"([^"]*(?:Plats|Spot|Berth|Brygga|\d+)[^"]*)"/gi;
+                let jsonMatch;
+                while ((jsonMatch = jsonSpotRegex.exec(data)) !== null) {
+                    const spotName = jsonMatch[1].trim();
+                    if (spotName && spotName.length < 30 && !spots.includes(spotName)) {
+                        spots.push(spotName);
                     }
                 }
 
-                // Ta bort dubletter
+                // 2. Sök efter <option>-taggar i formulär
+                if (spots.length === 0) {
+                    const optionRegex = /<option[^>]*value=["']?([^"'>]+)["']?[^>]*>(.*?)<\/option>/gi;
+                    let optMatch;
+                    while ((optMatch = optionRegex.exec(data)) !== null) {
+                        const val = optMatch[1];
+                        const txt = optMatch[2].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+                        if (val && !val.toLowerCase().includes('select') && txt && !txt.toLowerCase().includes('välj')) {
+                            spots.push(txt);
+                        }
+                    }
+                }
+
+                // 3. Sök efter klassiska textmönster i HTML (t.ex. "Plats 14" eller "Spot 3")
+                if (spots.length === 0) {
+                    const textSpotRegex = /(?:Plats|Spot|Berth)\s*\d+[a-zA-Z]?/gi;
+                    let textMatch;
+                    while ((textMatch = textSpotRegex.exec(data)) !== null) {
+                        if (!spots.includes(textMatch[0])) {
+                            spots.push(textMatch[0]);
+                        }
+                    }
+                }
+
+                // Rensa dubletter
                 spots = [...new Set(spots)];
+
+                const isAvailable = spots.length > 0 || (!data.includes("No available spots") && !data.includes("Fullbokat") && !data.includes("Inga lediga platser"));
 
                 res.status(200).json({
                     arrival,
                     departure,
-                    available: spots.length > 0,
+                    available: isAvailable,
                     spots: spots
                 });
                 resolve();
@@ -80,11 +78,17 @@ export default async function handler(req, res) {
         });
 
         request.on('error', (error) => {
-            res.status(500).json({ arrival, departure, available: false, spots: [], error: error.message });
+            res.status(200).json({ arrival, departure, available: false, spots: [], error: error.message });
             resolve();
         });
 
-        request.write(query);
+        // Sätt en timeout på 5 sekunder så att appen inte fastnar i "Laddar..."
+        request.setTimeout(5000, () => {
+            request.destroy();
+            res.status(200).json({ arrival, departure, available: true, spots: [], timeout: true });
+            resolve();
+        });
+
         request.end();
     });
 }
