@@ -1,177 +1,255 @@
-const https = require("https");
+import https from "https";
 
-module.exports = async function handler(req, res) {
+function fetchPage(path, redirects = 0) {
 
-  const {
-    dock,
-    length,
-    width,
-    depth,
-    arrival,
-    departure
-  } = req.query;
+    return new Promise((resolve, reject) => {
 
-  const targetPath =
-    `/en/docks/${dock}/spot_selections/new` +
-    `?length=${length}` +
-    `&width=${width}` +
-    `&depth=${depth}` +
-    `&from=${arrival}` +
-    `&to=${departure}`;
+        const options = {
+            hostname: "www.dockspot.com",
+            path,
+            method: "GET",
+            headers: {
+                "User-Agent":
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+                "Accept":
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language":
+                    "sv-SE,sv;q=0.9,en-US;q=0.8,en;q=0.7"
+            }
+        };
 
-  const options = {
-    hostname: "www.dockspot.com",
-    path: targetPath,
-    method: "GET",
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
-      "Accept":
-        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.9",
-      "Cache-Control": "no-cache"
-    }
-  };
+        https.get(options, (response) => {
 
-  const request = https.request(options, (response) => {
+            // Följ redirect
+            if (
+                response.statusCode >= 300 &&
+                response.statusCode < 400 &&
+                response.headers.location
+            ) {
 
-    let data = "";
+                if (redirects > 5) {
+                    reject(
+                        new Error("För många redirects")
+                    );
+                    return;
+                }
 
-    response.on("data", (chunk) => {
-      data += chunk;
+                let nextPath =
+                    response.headers.location;
+
+                if (
+                    nextPath.startsWith(
+                        "https://www.dockspot.com"
+                    )
+                ) {
+
+                    nextPath = nextPath.replace(
+                        "https://www.dockspot.com",
+                        ""
+                    );
+
+                }
+
+                resolve(
+                    fetchPage(
+                        nextPath,
+                        redirects + 1
+                    )
+                );
+
+                return;
+            }
+
+            let data = "";
+
+            response.on(
+                "data",
+                chunk => {
+                    data += chunk;
+                }
+            );
+
+            response.on(
+                "end",
+                () => {
+
+                    resolve({
+                        html: data,
+                        statusCode:
+                            response.statusCode
+                    });
+
+                }
+            );
+
+        }).on("error", reject);
+
     });
 
-    response.on("end", () => {
+}
 
-      try {
+export default async function handler(req, res) {
+
+    try {
+
+        const {
+            dock,
+            length,
+            width,
+            depth,
+            arrival,
+            departure
+        } = req.query;
+
+        const path =
+            `/en/docks/${dock}/spot_selections/new` +
+            `?length=${length}` +
+            `&width=${width}` +
+            `&depth=${depth}` +
+            `&from=${arrival}` +
+            `&to=${departure}`;
+
+        const result =
+            await fetchPage(path);
+
+        const html =
+            result.html || "";
 
         let spots = [];
 
         //
-        // METOD 1
-        // Läs JSON-attributet
+        // Primär metod
         //
-        const spotsMatch = data.match(
-          /data-bookings--spot-map-component-spots-value="([^"]*)"/
+
+        const match = html.match(
+            /data-bookings--spot-map-component-spots-value="([^"]+)"/
         );
 
-        if (spotsMatch && spotsMatch[1] !== "[]") {
+        if (match) {
 
-          try {
+            try {
 
-            const jsonText = spotsMatch[1]
-              .replace(/&quot;/g, '"');
+                const jsonText =
+                    match[1]
+                        .replace(
+                            /&quot;/g,
+                            '"'
+                        );
 
-            const spotData = JSON.parse(jsonText);
+                const spotData =
+                    JSON.parse(jsonText);
 
-            spotData.forEach((spot) => {
+                spotData.forEach(
+                    spot => {
 
-              if (
-                spot.number &&
-                spot.isAvailable === true
-              ) {
-                spots.push(`Plats ${spot.number}`);
-              }
+                        if (
+                            spot.isAvailable
+                        ) {
 
-            });
+                            spots.push(
+                                `Plats ${spot.number}`
+                            );
 
-          } catch (e) {
-            console.log("JSON parse error:", e.message);
-          }
+                        }
+
+                    }
+                );
+
+            } catch (e) {
+
+                console.log(
+                    "JSON parse error:",
+                    e.message
+                );
+
+            }
         }
 
         //
-        // METOD 2
-        // Läs dropdown-listan
-        //
-        if (spots.length === 0) {
-
-          const optionRegex =
-            /<option[^>]*value="[^"]*"[^>]*>(\d+)\s*\([^<]*<\/option>/gi;
-
-          let match;
-
-          while ((match = optionRegex.exec(data)) !== null) {
-
-            spots.push(`Plats ${match[1]}`);
-
-          }
-        }
-
-        //
-        // METOD 3
         // Fallback
         //
-        if (spots.length === 0) {
 
-          const berthRegex =
-            />(\d+)\s*\(\d+\.\d+\s*SEK\s*for\s*\d+\s*night/gi;
+        if (
+            spots.length === 0
+        ) {
 
-          let match;
+            const optionRegex =
+                /<option[^>]*value="(\d+)"[^>]*>([^<]+)<\/option>/g;
 
-          while ((match = berthRegex.exec(data)) !== null) {
+            let found;
 
-            spots.push(`Plats ${match[1]}`);
+            while (
+                (found =
+                    optionRegex.exec(
+                        html
+                    )) !== null
+            ) {
 
-          }
+                const text =
+                    found[2].trim();
+
+                if (
+                    /^\d+/.test(text)
+                ) {
+
+                    spots.push(
+                        `Plats ${
+                            text.split(" ")[0]
+                        }`
+                    );
+
+                }
+
+            }
         }
 
-        spots = [...new Set(spots)];
-
-        const available =
-          spots.length > 0 &&
-          !data.includes("No single berth available");
+        spots =
+            [...new Set(spots)];
 
         res.status(200).json({
-          arrival,
-          departure,
-          available,
-          count: spots.length,
-          spots
+
+            arrival,
+            departure,
+
+            available:
+                spots.length > 0,
+
+            count:
+                spots.length,
+
+            spots,
+
+            debug: {
+                url: path,
+                statusCode:
+                    result.statusCode,
+                htmlLength:
+                    html.length,
+                containsSpotsValue:
+                    html.includes(
+                        "data-bookings--spot-map-component-spots-value"
+                    ),
+                containsBookingSelect:
+                    html.includes(
+                        "booking_spot_id"
+                    )
+            }
+
         });
 
-      } catch (err) {
+    } catch (err) {
 
         res.status(200).json({
-          arrival,
-          departure,
-          available: false,
-          spots: [],
-          error: err.message
+
+            available: false,
+            count: 0,
+            spots: [],
+
+            error:
+                err.message
+
         });
 
-      }
+    }
 
-    });
-
-  });
-
-  request.on("error", (err) => {
-
-    res.status(200).json({
-      arrival,
-      departure,
-      available: false,
-      spots: [],
-      error: err.message
-    });
-
-  });
-
-  request.setTimeout(15000, () => {
-
-    request.destroy();
-
-    res.status(200).json({
-      arrival,
-      departure,
-      available: false,
-      spots: [],
-      error: "timeout"
-    });
-
-  });
-
-  request.end();
-
-};
+}
