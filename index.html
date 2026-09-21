@@ -166,11 +166,14 @@ async function runSearch() {
     }
 
     const resultsContainer = document.getElementById('resultsContainer');
-    resultsContainer.innerHTML = '<p style="font-size: 13px; text-align: center; color: var(--text-sub);">Hämtar tillgänglighet från Dockspot...</p>';
+    resultsContainer.innerHTML = '<p style="font-size: 13px; text-align: center; color: var(--text-sub);">Analyserar tillgänglighet per platsnummer...</p>';
 
     let curr = new Date(startDateVal);
     const end = new Date(endDateVal);
-    let htmlResults = '';
+    
+    // Objekt för att spåra vilka datum varje plats är ledig: { "Plats 12": ["2026-09-21", "2026-09-22"], ... }
+    const spotMap = {};
+    const dailyResults = [];
 
     while (curr < end) {
         const arrival = curr.toISOString().split('T')[0];
@@ -180,82 +183,87 @@ async function runSearch() {
         const departure = nextDay.toISOString().split('T')[0];
 
         const apiUrl = `/api/check?dock=${dock}&length=${length}&width=${width}&depth=${depth}&arrival=${arrival}&departure=${departure}`;
-        const dockUrl = `https://www.dockspot.com/sv/docks/${dock}?length=${length}&width=${width}&depth=${depth}&arrival=${arrival}&departure=${departure}`;
 
         try {
             const response = await fetch(apiUrl);
-            
-            if (!response.ok) {
-                throw new Error('Serverfel');
-            }
+            const data = await response.json();
 
-            const htmlText = await response.text();
-
-            // Parsea HTML direkt i mobilen
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(htmlText, 'text/html');
-
-            // Hämta alla platser ur dropplistan
-            const options = Array.from(doc.querySelectorAll('select option, option'));
-            let spots = [];
-
-            options.forEach(opt => {
-                const txt = opt.textContent.trim();
-                const val = opt.getAttribute('value') || '';
-                if (txt && !val.includes('select') && !txt.toLowerCase().includes('välj') && !txt.toLowerCase().includes('select')) {
-                    spots.push(txt);
-                }
+            dailyResults.push({
+                arrival,
+                departure,
+                available: data.available,
+                spots: data.spots || []
             });
 
-            // Avgör om det finns ledigt
-            const isExplicitlyFull = htmlText.includes("No available spots") || htmlText.includes("Fullbokat") || htmlText.includes("Inga lediga platser");
-            const isAvailable = spots.length > 0 || !isExplicitlyFull;
-
-            let spotsListHtml = '';
-            if (spots.length > 0) {
-                spotsListHtml = `
-                    <div style="margin-top: 8px; padding: 8px; background: #ffffff; border-radius: 8px; border: 1px solid var(--border);">
-                        <strong style="font-size: 12px; color: var(--primary);">Lediga platser:</strong>
-                        <ul style="font-size: 13px; margin: 4px 0 0 16px; padding: 0;">
-                            ${spots.map(s => `<li>${s}</li>`).join('')}
-                        </ul>
-                    </div>
-                `;
+            if (data.spots && data.spots.length > 0) {
+                data.spots.forEach(spot => {
+                    if (!spotMap[spot]) spotMap[spot] = [];
+                    spotMap[spot].push(arrival);
+                });
             }
-
-            htmlResults += `
-                <div class="day-result">
-                    <div class="day-header">
-                        <span>📅 ${arrival} ➔ ${departure}</span>
-                        <span class="spot-badge ${isAvailable ? 'spot-available' : 'spot-full'}">
-                            ${isAvailable ? 'Plats Finns' : 'Fullbokat'}
-                        </span>
-                    </div>
-                    ${spotsListHtml}
-                    ${isAvailable ? `
-                        <div style="margin-top: 8px;">
-                            <a href="${dockUrl}" target="_blank" style="display: block; text-align: center; background: #0284c7; color: white; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 600;">
-                                📍 Boka på Dockspot
-                            </a>
-                        </div>
-                    ` : ''}
-                </div>
-            `;
         } catch (err) {
-            htmlResults += `
-                <div class="day-result">
-                    <div class="day-header">
-                        <span>📅 ${arrival} ➔ ${departure}</span>
-                        <span class="spot-badge spot-full">Kunde inte hämta data</span>
-                    </div>
-                </div>
-            `;
+            dailyResults.push({ arrival, departure, available: false, spots: [] });
         }
 
         curr.setDate(curr.getDate() + 1);
     }
 
-    resultsContainer.innerHTML = htmlResults;
+    // --- Bygg HTML-presentation ---
+    let html = '';
+
+    // 1. Sammanfattning: Sammanhängande platser över flera dagar
+    const spotsWithMultipleDays = Object.keys(spotMap).map(spotName => {
+        return {
+            name: spotName,
+            dates: spotMap[spotName],
+            count: spotMap[spotName].length
+        };
+    }).sort((a, b) => b.count - a.count);
+
+    if (spotsWithMultipleDays.length > 0) {
+        html += `
+            <div style="background: #e0f2fe; border: 1px solid #0284c7; border-radius: 12px; padding: 12px; margin-bottom: 16px;">
+                <h4 style="margin: 0 0 8px 0; color: #0369a1; font-size: 14px;">🔗 Platser lediga flera dagar i rad:</h4>
+                <ul style="margin: 0; padding-left: 18px; font-size: 13px; color: #0c4a6e;">
+                    ${spotsWithMultipleDays.map(s => `
+                        <li style="margin-bottom: 4px;">
+                            <strong>${s.name}</strong>: Ledig <strong>${s.count}</strong> av dagarna (${s.dates.join(', ')})
+                        </li>
+                    `).join('')}
+                </ul>
+            </div>
+        `;
+    }
+
+    // 2. Dag-för-dag-visning
+    dailyResults.forEach(day => {
+        const dockUrl = `https://www.dockspot.com/sv/docks/${dock}?length=${length}&width=${width}&depth=${depth}&arrival=${day.arrival}&departure=${day.departure}`;
+        
+        let spotsBadge = day.spots.length > 0 
+            ? `<div style="margin-top: 6px; font-size: 12px; color: #0369a1;"><strong>Lediga:</strong> ${day.spots.join(', ')}</div>`
+            : '';
+
+        html += `
+            <div class="day-result">
+                <div class="day-header">
+                    <span>📅 ${day.arrival} ➔ ${day.departure}</span>
+                    <span class="spot-badge ${day.available ? 'spot-available' : 'spot-full'}">
+                        ${day.available ? (day.spots.length > 0 ? `${day.spots.length} st lediga` : 'Plats Finns') : 'Fullbokat'}
+                    </span>
+                </div>
+                ${spotsBadge}
+                ${day.available ? `
+                    <div style="margin-top: 8px;">
+                        <a href="${dockUrl}" target="_blank" style="display: block; text-align: center; background: #0284c7; color: white; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 600;">
+                            📍 Boka på Dockspot
+                        </a>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    });
+
+    resultsContainer.innerHTML = html;
 }
     </script>
 </body>
