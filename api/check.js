@@ -42,65 +42,107 @@ module.exports = async function handler(req, res) {
 
     response.on("end", () => {
 
-      let spots = [];
-
-      try {
-
-        const spotsMatch = data.match(
-          /data-bookings--spot-map-component-spots-value="([^"]+)"/
+      const spotsAttribute =
+        data.match(
+          /data-bookings--spot-map-component-spots-value="([^"]*)"/
         );
 
-        if (spotsMatch) {
+      const bookingSelect =
+        data.match(
+          /<select[^>]*booking\[spot_id\][\s\S]*?<\/select>/i
+        );
 
-          const jsonText = spotsMatch[1]
-            .replace(/&quot;/g, '"');
+      const optionMatches =
+        [...data.matchAll(
+          /<option[^>]*>(.*?)<\/option>/gi
+        )].map(m => m[1]);
 
-          const spotData = JSON.parse(jsonText);
+      console.log("====================================");
+      console.log("URL:");
+      console.log(targetPath);
 
-          spotData.forEach((spot) => {
+      console.log("====================================");
+      console.log("HTTP STATUS:");
+      console.log(response.statusCode);
 
-            if (spot.isAvailable === true) {
-              spots.push(`Plats ${spot.number}`);
-            }
+      console.log("====================================");
+      console.log("SPOTS ATTRIBUTE:");
 
-          });
-
-        }
-
-        if (spots.length === 0) {
-
-          const optionRegex =
-            /<option[^>]*>(\d+)\s*\([^<]*<\/option>/g;
-
-          let match;
-
-          while ((match = optionRegex.exec(data)) !== null) {
-            spots.push(`Plats ${match[1]}`);
-          }
-
-        }
-
-        spots = [...new Set(spots)];
-
-        res.status(200).json({
-          arrival,
-          departure,
-          available: spots.length > 0,
-          count: spots.length,
-          spots
-        });
-
-      } catch (err) {
-
-        res.status(200).json({
-          arrival,
-          departure,
-          available: false,
-          spots: [],
-          error: err.message
-        });
-
+      if (spotsAttribute) {
+        console.log(
+          spotsAttribute[1].substring(0, 2000)
+        );
+      } else {
+        console.log("EJ HITTAD");
       }
+
+      console.log("====================================");
+      console.log("BOOKING SELECT:");
+
+      if (bookingSelect) {
+        console.log(
+          bookingSelect[0].substring(0, 5000)
+        );
+      } else {
+        console.log("EJ HITTAD");
+      }
+
+      console.log("====================================");
+      console.log("OPTIONS:");
+
+      console.log(optionMatches);
+
+      console.log("====================================");
+      console.log("NO SINGLE BERTH:");
+
+      console.log(
+        data.includes("No single berth available")
+      );
+
+      console.log("====================================");
+      console.log("HTML LENGTH:");
+
+      console.log(data.length);
+
+      console.log("====================================");
+
+      res.status(200).json({
+
+        debug: true,
+
+        url: targetPath,
+
+        statusCode: response.statusCode,
+
+        htmlLength: data.length,
+
+        foundSpotsAttribute: !!spotsAttribute,
+
+        spotsAttributePreview:
+          spotsAttribute
+            ? spotsAttribute[1].substring(0, 500)
+            : null,
+
+        foundBookingSelect: !!bookingSelect,
+
+        optionCount: optionMatches.length,
+
+        options: optionMatches.slice(0, 50),
+
+        noSingleBerth:
+          data.includes("No single berth available"),
+
+        containsMapComponent:
+          data.includes(
+            "data-bookings--spot-map-component"
+          ),
+
+        containsSpotId:
+          data.includes(
+            "booking[spot_id]"
+          )
+
+      });
 
     });
 
@@ -109,10 +151,6 @@ module.exports = async function handler(req, res) {
   request.on("error", (err) => {
 
     res.status(200).json({
-      arrival,
-      departure,
-      available: false,
-      spots: [],
       error: err.message
     });
 
@@ -123,14 +161,11 @@ module.exports = async function handler(req, res) {
     request.destroy();
 
     res.status(200).json({
-      arrival,
-      departure,
-      available: false,
-      spots: [],
       error: "timeout"
     });
 
   });
 
   request.end();
+
 };
