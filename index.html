@@ -166,12 +166,11 @@ async function runSearch() {
     }
 
     const resultsContainer = document.getElementById('resultsContainer');
-    resultsContainer.innerHTML = '<p style="font-size: 13px; text-align: center; color: var(--text-sub);">Analyserar tillgänglighet per platsnummer...</p>';
+    resultsContainer.innerHTML = '<p style="font-size: 13px; text-align: center; color: var(--text-sub);">Hämtar och analyserar platsnummer...</p>';
 
     let curr = new Date(startDateVal);
     const end = new Date(endDateVal);
     
-    // Objekt för att spåra vilka datum varje plats är ledig: { "Plats 12": ["2026-09-21", "2026-09-22"], ... }
     const spotMap = {};
     const dailyResults = [];
 
@@ -208,26 +207,23 @@ async function runSearch() {
         curr.setDate(curr.getDate() + 1);
     }
 
-    // --- Bygg HTML-presentation ---
     let html = '';
 
-    // 1. Sammanfattning: Sammanhängande platser över flera dagar
-    const spotsWithMultipleDays = Object.keys(spotMap).map(spotName => {
-        return {
-            name: spotName,
-            dates: spotMap[spotName],
-            count: spotMap[spotName].length
-        };
-    }).sort((a, b) => b.count - a.count);
+    // Visa översikt för sammanhängande dagar per plats
+    const multiDaySpots = Object.keys(spotMap).map(spotName => ({
+        name: spotName,
+        dates: spotMap[spotName],
+        count: spotMap[spotName].length
+    })).filter(s => s.count > 1).sort((a, b) => b.count - a.count);
 
-    if (spotsWithMultipleDays.length > 0) {
+    if (multiDaySpots.length > 0) {
         html += `
             <div style="background: #e0f2fe; border: 1px solid #0284c7; border-radius: 12px; padding: 12px; margin-bottom: 16px;">
                 <h4 style="margin: 0 0 8px 0; color: #0369a1; font-size: 14px;">🔗 Platser lediga flera dagar i rad:</h4>
                 <ul style="margin: 0; padding-left: 18px; font-size: 13px; color: #0c4a6e;">
-                    ${spotsWithMultipleDays.map(s => `
+                    ${multiDaySpots.map(s => `
                         <li style="margin-bottom: 4px;">
-                            <strong>${s.name}</strong>: Ledig <strong>${s.count}</strong> av dagarna (${s.dates.join(', ')})
+                            <strong>${s.name}</strong>: Ledig <strong>${s.count}</strong> dagar (${s.dates[0]} ➔${s.dates[s.dates.length - 1]})
                         </li>
                     `).join('')}
                 </ul>
@@ -235,12 +231,11 @@ async function runSearch() {
         `;
     }
 
-    // 2. Dag-för-dag-visning
     dailyResults.forEach(day => {
-        const dockUrl = `https://www.dockspot.com/sv/docks/${dock}?length=${length}&width=${width}&depth=${depth}&arrival=${day.arrival}&departure=${day.departure}`;
-        
-        let spotsBadge = day.spots.length > 0 
-            ? `<div style="margin-top: 6px; font-size: 12px; color: #0369a1;"><strong>Lediga:</strong> ${day.spots.join(', ')}</div>`
+        const dockUrl = `https://www.dockspot.com/sv/docks/${dock}?length=${length}&width=${width}&depth=${depth}&arrival=${arrival}&departure=${departure}`;
+
+        let spotsDetail = day.spots.length > 0 
+            ? `<div style="margin-top: 6px; font-size: 13px; color: #0369a1;"><strong>Lediga platser:</strong> ${day.spots.join(', ')}</div>`
             : '';
 
         html += `
@@ -251,7 +246,7 @@ async function runSearch() {
                         ${day.available ? (day.spots.length > 0 ? `${day.spots.length} st lediga` : 'Plats Finns') : 'Fullbokat'}
                     </span>
                 </div>
-                ${spotsBadge}
+                ${spotsDetail}
                 ${day.available ? `
                     <div style="margin-top: 8px;">
                         <a href="${dockUrl}" target="_blank" style="display: block; text-align: center; background: #0284c7; color: white; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 600;">
