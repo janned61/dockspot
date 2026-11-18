@@ -59,11 +59,53 @@ function parseCsrf(html) {
     return m ? decodeEntities(m[1]) : null;
 }
 
-function cookiesFrom(res) {
-    const list = typeof res.headers.getSetCookie === 'function'
-        ? res.headers.getSetCookie()
-        : (res.headers.get('set-cookie') || '').split(/,(?=\s*[^;=\s]+=)/);
-    return list.map(c => c.split(';')[0].trim()).filter(Boolean).join('; ');
+// Enkel cookie-burk. Dockspot omdirigerar (region/språk) och sätter cookies på vägen;
+// inbyggda fetch sparar inga cookies mellan omdirigeringar och fastnar då i en loop.
+function createJar() {
+    const cookies = new Map();
+    return {
+        store(res) {
+            const list = typeof res.headers.getSetCookie === 'function'
+                ? res.headers.getSetCookie()
+                : (res.headers.get('set-cookie') || '').split(/,(?=\s*[^;=\s]+=)/);
+            list.forEach(c => {
+                const pair = c.split(';')[0].trim();
+                const i = pair.indexOf('=');
+                if (i > 0) cookies.set(pair.slice(0, i), pair.slice(i + 1));
+            });
+        },
+        header() {
+            return [...cookies].map(([k, v]) => `${k}=${v}`).join('; ');
+        }
+    };
+}
+
+// fetch som följer omdirigeringar själv och skickar med cookies
+async function jarFetch(jar, url, opts = {}, trail = []) {
+    let current = url;
+    let method = opts.method || 'GET';
+    let body = opts.body;
+    for (let hop = 0; hop < 10; hop++) {
+        const headers = { ...(opts.headers || {}) };
+        const cookie = jar.header();
+        if (cookie) headers.Cookie = cookie;
+        const res = await fetch(current, { method, headers, body, redirect: 'manual' });
+        jar.store(res);
+        const loc = res.headers.get('location');
+        if (res.status >= 300 && res.status < 400 && loc) {
+            const next = new URL(loc, current).toString();
+            trail.push(`${res.status} → ${next}`);
+            if (res.status === 303 || ((res.status === 301 || res.status === 302) && method === 'POST')) {
+                method = 'GET';
+                body = undefined;
+            }
+            current = next;
+            continue;
+        }
+        res.finalUrl = current;
+        return res;
+    }
+    throw new Error(`För många omdirigeringar: ${trail.slice(-4).join(' | ')}`);
 }
 
 // Gör nätverksfel begripliga: vilket steg, och den underliggande orsaken
@@ -79,23 +121,23 @@ async function step(name, fn) {
     }
 }
 
-async function openSession(dock, boat) {
+async function openSession(dock, boat, jar) {
     const url = `${BASE}/en/docks/${encodeURIComponent(dock)}/spot_selections/new`
         + `?length=${boat.length}&width=${boat.width}&depth=${boat.depth}`;
-    const res = await step('Platsvalssidan', () => fetch(url, { headers: { 'User-Agent': UA, 'Accept': 'text/html', 'Accept-Language': 'en' } }));
+    const res = await step('Platsvalssidan', () => jarFetch(jar, url, { headers: { 'User-Agent': UA, 'Accept': 'text/html', 'Accept-Language': 'en' } }));
     if (res.status === 404) throw new Error('Hamnen finns inte på Dockspot (kontrollera hamn-id)');
     if (!res.ok) throw new Error(`Dockspot svarade ${res.status} på platsvalssidan`);
     const html = await res.text();
     const token = parseCsrf(html);
     if (!token) throw new Error('Hittade ingen csrf-token på Dockspot-sidan');
-    return { token, cookie: cookiesFrom(res), referer: url };
+    return { token, jar, referer: res.finalUrl || url };
 }
 
-async function fetchCalendar(dock, boat) {
+async function fetchCalendar(dock, boat, jar) {
     const url = `${BASE}/en/docks/${encodeURIComponent(dock)}/availability`
         + `?length=${boat.length}&width=${boat.width}&depth=${boat.depth}`;
     try {
-        const res = await fetch(url, { headers: { 'User-Agent': UA, 'Accept': 'application/json' } });
+        const res = await jarFetch(jar, url, { headers: { 'User-Agent': UA, 'Accept': 'application/json' } });
         return res.ok ? await res.json() : { error: `HTTP ${res.status}` };
     } catch (err) {
         const c = err.cause || {};
@@ -121,8 +163,7 @@ async function fetchNight(dock, boat, session, from, to) {
         'Origin': BASE,
         'Referer': session.referer
     };
-    if (session.cookie) headers.Cookie = session.cookie;
-    const res = await step(`Platslistan ${from}`, () => fetch(`${BASE}/en/docks/${encodeURIComponent(dock)}/spot_selections/refresh_map_widget`, {
+    const res = await step(`Platslistan ${from}`, () => jarFetch(session.jar, `${BASE}/en/docks/${encodeURIComponent(dock)}/spot_selections/refresh_map_widget`, {
         method: 'POST',
         headers,
         body: body.toString()
@@ -147,7 +188,8 @@ async function pool(items, limit, fn) {
 
 async function checkDock({ dock, boat, from, to }) {
     const nights = nightsBetween(from, to);
-    const cal = await fetchCalendar(dock, boat);
+    const jar = createJar();
+    const cal = await fetchCalendar(dock, boat, jar);
     const calendarError = cal && cal.error ? cal.error : null;
     const calendar = calendarError ? null : cal;
 
@@ -164,7 +206,7 @@ async function checkDock({ dock, boat, from, to }) {
 
     const berths = new Map();
     if (toAsk.length) {
-        const session = await openSession(dock, boat);
+        const session = await openSession(dock, boat, jar);
         await pool(toAsk, CONCURRENCY, async night => {
             const spots = await fetchNight(dock, boat, session, night, iso(toUTC(night) + DAY));
             spots.forEach(s => {
@@ -183,22 +225,25 @@ async function checkDock({ dock, boat, from, to }) {
 
 module.exports = async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=300');
+    res.setHeader('Cache-Control', 'no-store');
 
     const { dock, length, width, depth, from, to, diag } = req.query;
 
     // /api/check?diag=1 – testar bara om servern når Dockspot
     if (diag) {
         const out = { node: process.version, region: process.env.VERCEL_REGION || null };
+        const trail = [];
         try {
-            const r = await fetch(`${BASE}/en`, { headers: { 'User-Agent': UA, 'Accept': 'text/html' } });
+            const r = await jarFetch(createJar(), `${BASE}/en/docks/107-fjallbacka-gasthamn/availability?length=9&width=3&depth=1`, { headers: { 'User-Agent': UA, 'Accept': 'application/json' } }, trail);
             out.status = r.status;
+            out.finalUrl = r.finalUrl;
             out.server = r.headers.get('server');
-            out.bytes = (await r.text()).length;
+            out.sample = (await r.text()).slice(0, 200);
         } catch (err) {
             out.error = err.message;
             out.cause = err.cause ? { code: err.cause.code, message: err.cause.message } : null;
         }
+        out.redirects = trail;
         return res.status(200).json(out);
     }
     const boat = { length: parseFloat(length), width: parseFloat(width), depth: parseFloat(depth) };
@@ -209,7 +254,9 @@ module.exports = async function handler(req, res) {
     if (nightsBetween(from, to).length > MAX_NIGHTS) return res.status(400).json({ error: `Max ${MAX_NIGHTS} nätter per sökning` });
 
     try {
-        res.status(200).json(await checkDock({ dock, boat, from, to }));
+        const result = await checkDock({ dock, boat, from, to });
+        res.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=300');
+        res.status(200).json(result);
     } catch (err) {
         res.status(502).json({ error: err.message, step: err.step || null, node: process.version });
     }
