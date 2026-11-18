@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dockspot Skanner</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0284c7">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="https://img.icons8.com/color/512/anchor.png">
+
+    <style>
+        :root {
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --primary: #0284c7;
+            --primary-hover: #0369a1;
+            --text: #0f172a;
+            --text-secondary: #64748b;
+            --border: #e2e8f0;
+            --success-bg: #dcfce7;
+            --success-text: #15803d;
+            --danger-bg: #fee2e2;
+            --danger-text: #b91c1c;
+            --free: #86efac;
+            --run: #16a34a;
+            --busy: #e2e8f0;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body { background-color: var(--bg-color); color: var(--text); padding-bottom: 40px; }
+
+        .header {
+            background: linear-gradient(135deg, #0284c7, #0369a1);
+            color: white;
+            padding: 24px 20px 20px 20px;
+            border-bottom-left-radius: 20px;
+            border-bottom-right-radius: 20px;
+            box-shadow: 0 4px 12px rgba(2, 132, 199, 0.2);
+        }
+        .header h1 { font-size: 24px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+        .header p { font-size: 14px; opacity: 0.9; margin-top: 4px; }
+        .demo-banner {
+            display: none; margin-top: 10px; font-size: 12px; font-weight: 600;
+            background: rgba(255,255,255,0.18); padding: 6px 10px; border-radius: 8px;
+        }
+
+        .container { padding: 20px; max-width: 760px; margin: 0 auto; }
+
+        .card {
+            background: var(--card-bg); border-radius: 16px; padding: 20px; margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05); border: 1px solid var(--border);
+        }
+        .card-title {
+            font-size: 16px; font-weight: 600; margin-bottom: 16px;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+
+        .form-group { margin-bottom: 14px; position: relative; }
+        .form-group > label, .label {
+            display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;
+        }
+        .form-control {
+            width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px;
+            font-size: 15px; background: #f8fafc; color: var(--text); outline: none; transition: all 0.2s;
+        }
+        .form-control:focus { border-color: var(--primary); background: #fff; box-shadow: 0 0 0 3px rgba(2,132,199,0.15); }
+
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+        .btn {
+            width: 100%; padding: 14px; background-color: var(--primary); color: white; border: none;
+            border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; transition: background 0.2s;
+            display: flex; justify-content: center; align-items: center; gap: 8px;
+        }
+        .btn:active { background-color: var(--primary-hover); transform: scale(0.99); }
+        .btn-outline { background: transparent; color: var(--primary); border: 1px solid var(--primary); }
+        .btn:disabled { opacity: 0.6; cursor: wait; }
+
+        .status-badge { font-size: 12px; padding: 4px 10px; border-radius: 20px; font-weight: 600; }
+        .status-active { background: var(--success-bg); color: var(--success-text); }
+        .status-inactive { background: #f1f5f9; color: var(--text-secondary); }
+
+        .hint { font-size: 12px; color: var(--text-secondary); margin-top: 6px; }
+
+        /* Hamnväljare */
+        .harbor-list {
+            margin-top: 8px; max-height: 210px; overflow-y: auto;
+            border: 1px solid var(--border); border-radius: 10px; background: #fff;
+        }
+        .check-row {
+            display: flex; align-items: center; gap: 10px; padding: 10px 14px; font-size: 14px;
+            border-bottom: 1px solid var(--border); cursor: pointer;
+        }
+        .check-row:last-child { border-bottom: none; }
+        .check-row input { width: 18px; height: 18px; accent-color: var(--primary); }
+        .check-row.disabled { color: var(--text-secondary); }
+        .all-row { border: 1px solid var(--border); border-radius: 10px; font-weight: 600; margin-bottom: 8px; }
+        .link-row { display: flex; gap: 8px; margin-top: 10px; }
+        .link-row .form-control { font-size: 14px; padding: 10px 12px; }
+        .btn-small { width: auto; padding: 10px 14px; font-size: 14px; border-radius: 10px; white-space: nowrap; }
+
+        /* Bevakningar */
+        .watch-item {
+            background: #f8fafc; border-radius: 12px; padding: 14px; margin-bottom: 14px;
+            border: 1px solid var(--border);
+        }
+        .watch-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+        .watch-info h4 { font-size: 15px; font-weight: 600; }
+        .watch-info p { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
+        .btn-delete { background: none; border: none; color: var(--danger-text); font-size: 18px; cursor: pointer; padding: 6px; }
+        .overview {
+            margin-top: 10px; padding: 8px 12px; border-radius: 8px; font-size: 13px; font-weight: 600;
+            background: var(--success-bg); color: var(--success-text);
+        }
+        .overview.none { background: #f1f5f9; color: var(--text-secondary); }
+
+        .harbor-res { margin-top: 14px; }
+        .harbor-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 14px; margin-bottom: 6px; flex-wrap: wrap; }
+        .harbor-head .sum { font-size: 12px; color: var(--text-secondary); }
+        .err { font-size: 12px; color: var(--danger-text); }
+
+        .grid-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+        table.avail { border-collapse: separate; border-spacing: 2px; font-size: 11px; }
+        table.avail th { font-weight: 600; color: var(--text-secondary); padding: 4px 2px; text-align: center; white-space: nowrap; }
+        table.avail th.day { min-width: 34px; line-height: 1.2; }
+        table.avail th.weekend { color: var(--primary); }
+        table.avail .berth-col {
+            position: sticky; left: 0; background: #fff; z-index: 1; text-align: left;
+            padding: 4px 8px; min-width: 150px; max-width: 190px;
+        }
+        td.berth-col .bname { font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        td.berth-col .brun { font-size: 11px; color: var(--text-secondary); }
+        td.berth-col .brun.full { color: var(--success-text); font-weight: 700; }
+        td.c { height: 26px; border-radius: 4px; }
+        td.c-busy { background: var(--busy); }
+        td.c-free { background: var(--free); }
+        td.c-run { background: var(--run); }
+
+        details.rest { margin-top: 6px; font-size: 12px; color: var(--text-secondary); }
+        details.rest summary { cursor: pointer; padding: 4px 0; }
+        details.rest .grid-wrap { margin-top: 6px; }
+
+        .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin-bottom: 14px; }
+        .legend span { display: inline-flex; align-items: center; gap: 6px; }
+        .legend i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+
+        .empty-state { text-align: center; padding: 20px 10px; color: var(--text-secondary); font-size: 14px; }
+
+        .switch-container { display: flex; align-items: center; justify-content: space-between; padding: 6px 0 14px 0; gap: 12px; }
+        .switch-title { font-size: 14px; font-weight: 600; }
+        .switch-sub { font-size: 12px; color: var(--text-secondary); }
+        .switch { position: relative; display: inline-block; width: 50px; height: 28px; flex-shrink: 0; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; inset: 0; background-color: #cbd5e1; transition: .3s; border-radius: 34px; }
+        .slider:before {
+            position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px;
+            background-color: white; transition: .3s; border-radius: 50%;
+        }
+        input:checked + .slider { background-color: var(--primary); }
+        input:checked + .slider:before { transform: translateX(22px); }
+        select.form-control { width: auto; padding: 8px 10px; font-size: 14px; }
+
+        #scanStatus { text-align: center; margin-top: 8px; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>⚓ Dockspot Skanner</h1>
+        <p>Bevaka lediga gästhamnsplatser – samma plats flera nätter i rad</p>
+        <div id="demoBanner" class="demo-banner">🧪 Demoläge – visar simulerad data, inte riktiga platser från Dockspot</div>
+    </div>
+
+    <div class="container">
+
+        <!-- 1. Båtens mått -->
+        <div class="card">
+            <div class="card-title">
+                <span>1. Båtens mått</span>
+                <span id="savedBadge" style="font-size: 12px; color: var(--success-text); display: none;">✓ Sparat</span>
+            </div>
+            <div class="grid-3">
+                <div class="form-group">
+                    <label for="length">Längd (m)</label>
+                    <input type="number" id="length" class="form-control" value="9.0" step="0.1" min="0">
+                </div>
+                <div class="form-group">
+                    <label for="width">Bredd (m)</label>
+                    <input type="number" id="width" class="form-control" value="3.0" step="0.1" min="0">
+                </div>
+                <div class="form-group">
+                    <label for="depth">Djup (m)</label>
+                    <input type="number" id="depth" class="form-control" value="1.0" step="0.1" min="0">
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. Ny bevakning -->
+        <div class="card">
+            <div class="card-title"><span>2. Ny bevakning</span></div>
+
+            <div class="form-group">
+                <span class="label">Hamnar</span>
+                <label class="check-row all-row">
+                    <input type="checkbox" id="allHarbors"> Alla hamnar i listan
+                </label>
+                <input type="text" id="harborFilter" class="form-control" placeholder="Filtrera, t.ex. Åstol, Marstrand…" autocomplete="off">
+                <div id="harborList" class="harbor-list"></div>
+                <div id="harborCount" class="hint">Inga hamnar valda</div>
+                <div class="link-row">
+                    <input type="text" id="harborLink" class="form-control" placeholder="Saknas hamnen? Klistra in Dockspot-länken" autocomplete="off">
+                    <button type="button" class="btn btn-small" onclick="addHarborFromLink()">Lägg till</button>
+                </div>
+            </div>
+
+            <div class="grid-2">
+                <div class="form-group">
+                    <label for="startDate">Ankomst</label>
+                    <input type="date" id="startDate" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label for="endDate">Avresa</label>
+                    <input type="date" id="endDate" class="form-control">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="minNights">Minst antal nätter i följd på samma plats</label>
+                <input type="number" id="minNights" class="form-control" min="1" placeholder="Tomt = hela perioden">
+                <div class="hint">Ange t.ex. 2 om du kan tänka dig kortare stopp inom ett längre datumspann.</div>
+            </div>
+
+            <button class="btn" onclick="addWatch()">➕ Lägg till bevakning</button>
+        </div>
+
+        <!-- 3. Bevakningar & resultat -->
+        <div class="card">
+            <div class="card-title">
+                <span>3. Bevakningar</span>
+                <span id="watchStatus" class="status-badge status-inactive">Inga</span>
+            </div>
+
+            <div class="switch-container">
+                <div>
+                    <div class="switch-title">Notiser</div>
+                    <div class="switch-sub">Larm när en ny plats uppfyller dina krav</div>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="notificationToggle" onchange="toggleNotifications()">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <div class="switch-container">
+                <div>
+                    <div class="switch-title">Automatisk skanning</div>
+                    <div class="switch-sub">Körs medan appen är öppen</div>
+                </div>
+                <select id="autoScan" class="form-control">
+                    <option value="0">Av</option>
+                    <option value="15">Var 15:e min</option>
+                    <option value="30">Var 30:e min</option>
+                    <option value="60">Varje timme</option>
+                </select>
+            </div>
+
+            <div class="legend">
+                <span><i style="background: var(--run)"></i>Ledig, uppfyller ditt krav på nätter i följd</span>
+                <span><i style="background: var(--free)"></i>Ledig (kortare period)</span>
+                <span><i style="background: var(--busy)"></i>Upptagen</span>
+            </div>
+
+            <div id="watchList">
+                <div class="empty-state">Inga bevakningar tillagda ännu.</div>
+            </div>
+
+            <button id="scanBtn" class="btn btn-outline" style="margin-top: 6px;" onclick="scanAll('manual')">🔄 Skanna alla nu</button>
+            <div id="scanStatus" class="hint"></div>
+        </div>
+
+        <!-- 4. Inställningar -->
+        <div class="card">
+            <div class="card-title"><span>Inställningar</span></div>
+            <div class="switch-container">
+                <div>
+                    <div class="switch-title">Demoläge</div>
+                    <div class="switch-sub">Simulerad data för att prova gränssnittet. Stäng av för att hämta från Dockspot.</div>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="demoToggle" onchange="toggleDemo()">
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
