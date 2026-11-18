@@ -66,10 +66,23 @@ function cookiesFrom(res) {
     return list.map(c => c.split(';')[0].trim()).filter(Boolean).join('; ');
 }
 
+// Gör nätverksfel begripliga: vilket steg, och den underliggande orsaken
+async function step(name, fn) {
+    try {
+        return await fn();
+    } catch (err) {
+        const c = err.cause || {};
+        const detail = [c.code, c.message].filter(Boolean).join(': ');
+        const e = new Error(`${name}: ${err.message}${detail ? ` (${detail})` : ''}`);
+        e.step = name;
+        throw e;
+    }
+}
+
 async function openSession(dock, boat) {
     const url = `${BASE}/en/docks/${encodeURIComponent(dock)}/spot_selections/new`
         + `?length=${boat.length}&width=${boat.width}&depth=${boat.depth}`;
-    const res = await fetch(url, { headers: { 'User-Agent': UA, 'Accept': 'text/html', 'Accept-Language': 'en' } });
+    const res = await step('Platsvalssidan', () => fetch(url, { headers: { 'User-Agent': UA, 'Accept': 'text/html', 'Accept-Language': 'en' } }));
     if (res.status === 404) throw new Error('Hamnen finns inte på Dockspot (kontrollera hamn-id)');
     if (!res.ok) throw new Error(`Dockspot svarade ${res.status} på platsvalssidan`);
     const html = await res.text();
@@ -83,9 +96,10 @@ async function fetchCalendar(dock, boat) {
         + `?length=${boat.length}&width=${boat.width}&depth=${boat.depth}`;
     try {
         const res = await fetch(url, { headers: { 'User-Agent': UA, 'Accept': 'application/json' } });
-        return res.ok ? await res.json() : null;
-    } catch {
-        return null;
+        return res.ok ? await res.json() : { error: `HTTP ${res.status}` };
+    } catch (err) {
+        const c = err.cause || {};
+        return { error: [err.message, c.code, c.message].filter(Boolean).join(' | ') };
     }
 }
 
@@ -98,20 +112,21 @@ async function fetchNight(dock, boat, session, from, to) {
         from,
         to
     });
-    const res = await fetch(`${BASE}/en/docks/${encodeURIComponent(dock)}/spot_selections/refresh_map_widget`, {
+    const headers = {
+        'User-Agent': UA,
+        'Accept': 'text/vnd.turbo-stream.html, text/html, */*',
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        'X-CSRF-Token': session.token,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Origin': BASE,
+        'Referer': session.referer
+    };
+    if (session.cookie) headers.Cookie = session.cookie;
+    const res = await step(`Platslistan ${from}`, () => fetch(`${BASE}/en/docks/${encodeURIComponent(dock)}/spot_selections/refresh_map_widget`, {
         method: 'POST',
-        headers: {
-            'User-Agent': UA,
-            'Accept': 'text/vnd.turbo-stream.html, text/html, */*',
-            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-            'X-CSRF-Token': session.token,
-            'X-Requested-With': 'XMLHttpRequest',
-            'Origin': BASE,
-            'Referer': session.referer,
-            'Cookie': session.cookie
-        },
-        body
-    });
+        headers,
+        body: body.toString()
+    }));
     if (!res.ok) throw new Error(`refresh_map_widget svarade ${res.status}`);
     return parseSpots(await res.text());
 }
@@ -132,7 +147,9 @@ async function pool(items, limit, fn) {
 
 async function checkDock({ dock, boat, from, to }) {
     const nights = nightsBetween(from, to);
-    const calendar = await fetchCalendar(dock, boat);
+    const cal = await fetchCalendar(dock, boat);
+    const calendarError = cal && cal.error ? cal.error : null;
+    const calendar = calendarError ? null : cal;
 
     if (calendar && calendar.is_compatible === false) {
         return { dock, nights, compatible: false, berths: [] };
@@ -161,14 +178,29 @@ async function checkDock({ dock, boat, from, to }) {
         .map(b => ({ ...b, available_dates: b.available_dates.sort() }))
         .sort((a, b) => String(a.number).localeCompare(String(b.number), 'sv', { numeric: true }));
 
-    return { dock, nights, compatible: true, season: calendar ? { first: calendar.first_available_date, until: calendar.unavailable_from } : null, berths: list };
+    return { dock, nights, compatible: true, calendarError, season: calendar ? { first: calendar.first_available_date, until: calendar.unavailable_from } : null, berths: list };
 }
 
 module.exports = async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=300');
 
-    const { dock, length, width, depth, from, to } = req.query;
+    const { dock, length, width, depth, from, to, diag } = req.query;
+
+    // /api/check?diag=1 – testar bara om servern når Dockspot
+    if (diag) {
+        const out = { node: process.version, region: process.env.VERCEL_REGION || null };
+        try {
+            const r = await fetch(`${BASE}/en`, { headers: { 'User-Agent': UA, 'Accept': 'text/html' } });
+            out.status = r.status;
+            out.server = r.headers.get('server');
+            out.bytes = (await r.text()).length;
+        } catch (err) {
+            out.error = err.message;
+            out.cause = err.cause ? { code: err.cause.code, message: err.cause.message } : null;
+        }
+        return res.status(200).json(out);
+    }
     const boat = { length: parseFloat(length), width: parseFloat(width), depth: parseFloat(depth) };
 
     if (!dock || !/^[\w-]+$/.test(dock)) return res.status(400).json({ error: 'Ogiltig hamn (dock)' });
@@ -179,7 +211,7 @@ module.exports = async function handler(req, res) {
     try {
         res.status(200).json(await checkDock({ dock, boat, from, to }));
     } catch (err) {
-        res.status(502).json({ error: err.message });
+        res.status(502).json({ error: err.message, step: err.step || null, node: process.version });
     }
 };
 
